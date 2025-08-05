@@ -3,6 +3,12 @@ from collections import defaultdict
 
 def limpa_valor(valor_str):
     try:
+        if not valor_str:
+            return 0.0
+        # Garantir que é string
+        valor_str = str(valor_str)
+        # Remover underscores e outros caracteres especiais
+        valor_str = valor_str.replace('_', '').replace(' ', '')
         v = float(valor_str.replace('.', '').replace(',', '.').rstrip('.'))
         if v != v:  # NaN check
             return 0.0
@@ -21,9 +27,14 @@ def extrai_tabela(texto, padrao):
     return linhas
 
 def parse_bradesco(texto):
+    # Normalizar o texto (remover quebras de linha extras e espaços múltiplos)
+    texto = re.sub(r'\s+', ' ', texto).strip()
+    
     resultado = {
+        'titular': None,
         'conjuge': None,
         'renda_mensal': None,
+        'faturamento_mensal': None,
         'periodo': None,
         'creditos': {
             'total': 0.0,
@@ -41,7 +52,15 @@ def parse_bradesco(texto):
         'notas': [],
         'locais_depositos': [],
         'informacoes_finais': [],
-        'possiveis_crimes': []
+        'possiveis_crimes': [],
+        'vinculos_empresariais': [],
+        'atividades_suspeitas': [],
+        'resumo_financeiro': {
+            'saldo_periodo': 0.0,
+            'movimentacao_diaria_media': 0.0,
+            'incompatibilidade_renda': False,
+            'indicadores_risco': []
+        }
     }
 
     # Cônjuge
@@ -49,23 +68,29 @@ def parse_bradesco(texto):
     if m:
         resultado['conjuge'] = {'nome': m.group(1).strip(), 'cpf': m.group(2).strip()}
 
-    # Renda mensal
+    # Renda mensal (pessoas físicas) - padrão mais flexível
     m = re.search(r'renda mensal de R\$\s*([\d\.,]+)', texto, re.IGNORECASE)
     if m:
         resultado['renda_mensal'] = limpa_valor(m.group(1))
 
-    # Período
+    # Faturamento mensal (empresas) - padrão mais flexível
+    m = re.search(r'faturamento (?:médio )?mensal de R\$\s*([\d\.,]+)', texto, re.IGNORECASE)
+    if m:
+        resultado['faturamento_mensal'] = limpa_valor(m.group(1))
+
+    # Período - padrão mais flexível
     m = re.search(r'Entre (\d{2}\.\d{2}\.\d{4}) e (\d{2}\.\d{2}\.\d{4})', texto)
     if m:
         resultado['periodo'] = {'inicio': m.group(1), 'fim': m.group(2)}
 
-    # Créditos totais
+    # Créditos totais - padrão mais flexível
     m = re.search(r'os créditos somaram R\$\s*([\d\.,]+)', texto)
     if m:
         resultado['creditos']['total'] = limpa_valor(m.group(1))
 
-    # Detalhamento depósitos
-    m = re.search(r'sendo R\$ ([\d\.,]+) por meio de (\d+) depósitos realizados nas praças de ([^,]+(?:, [^,]+)*),? destes, R\$ ([\d\.,]+) efetuados em terminais de autoatendimento através de (\d+) transações \(Efetuados em cheques\), R\$ ([\d\.,]+) constando como efetuados em espécie através de (\d+) transações', texto)
+    # Detalhamento depósitos - múltiplos padrões para diferentes formatos
+    # Padrão 1: formato original
+    m = re.search(r'sendo R\$ ([\d\.,]+) por meio de (\d+) depósitos realizados nas praças de ([^,]+(?:, [^,]+)*),? destes, R\$ ([\d\.,]+) depositados em cheques, (\d+) transações', texto)
     if m:
         resultado['creditos']['depositos']['total'] = limpa_valor(m.group(1))
         resultado['creditos']['depositos']['quantidade'] = int(m.group(2))
@@ -74,52 +99,74 @@ def parse_bradesco(texto):
         resultado['locais_depositos'] = locais
         resultado['creditos']['depositos']['cheque']['valor'] = limpa_valor(m.group(4))
         resultado['creditos']['depositos']['cheque']['quantidade'] = int(m.group(5))
-        resultado['creditos']['depositos']['especie']['valor'] = limpa_valor(m.group(6))
-        resultado['creditos']['depositos']['especie']['quantidade'] = int(m.group(7))
+    
+    # Padrão 2: formato simplificado (novo modelo)
+    if resultado['creditos']['depositos']['total'] == 0:
+        m = re.search(r'sendo R\$ ([\d\.,]+) por meio de (\d+) depósitos realizados nas praças de ([^,]+(?:, [^,]+)*)', texto)
+        if m:
+            resultado['creditos']['depositos']['total'] = limpa_valor(m.group(1))
+            resultado['creditos']['depositos']['quantidade'] = int(m.group(2))
+            locais = [l.strip() for l in m.group(3).split(',')]
+            resultado['creditos']['depositos']['locais'] = locais
+            resultado['locais_depositos'] = locais
+    
+    # Depósitos em espécie - padrão mais flexível
+    m = re.search(r'R\$ ([\d\.,]+) constando como efetuados em espécie, (\d+) transação', texto)
+    if m:
+        resultado['creditos']['depositos']['especie']['valor'] = limpa_valor(m.group(1))
+        resultado['creditos']['depositos']['especie']['quantidade'] = int(m.group(2))
 
-    # Transferências (TED, DOC, PIX, etc)
-    m = re.search(r'R\$ ([\d\.,]+) provenientes de (\d+) Teds, Docs, Pixs e transferências entre contas', texto, re.IGNORECASE)
+    # Depósitos em cheques - padrão separado para novo formato
+    if resultado['creditos']['depositos']['cheque']['valor'] == 0:
+        m = re.search(r'R\$ ([\d\.,]+) depositados em cheques, (\d+) transações', texto)
+        if m:
+            resultado['creditos']['depositos']['cheque']['valor'] = limpa_valor(m.group(1))
+            resultado['creditos']['depositos']['cheque']['quantidade'] = int(m.group(2))
+
+    # Transferências (TED, DOC, PIX, etc) - padrão mais flexível
+    m = re.search(r'R\$ ([\d\.,]+) provenientes de (\d+) TEDs, DOCs, PIXs e transferências entre contas', texto, re.IGNORECASE)
     if m:
         resultado['creditos']['transferencias']['total'] = limpa_valor(m.group(1))
         resultado['creditos']['transferencias']['quantidade'] = int(m.group(2))
 
-    # Principais depositantes/remetentes
-    m = re.search(r'Demonstramos os principais depositantes e remetentes:(.+?)Os débitos', texto, re.DOTALL)
+    # Principais depositantes/remetentes - regex específico
+    m = re.search(r'Demonstramos os principais remetentes:(.+?)(?:Os débitos|Notas:)', texto, re.DOTALL)
     if m:
         tabela = m.group(1)
-        padrao = r'([\d\.,]+)\s+(\d+)\s+([\w\s\.\-]+?)\s+([\d\-/\.]+)\s+[\w\s\(\)/-]+'
+        # Regex específico para capturar valores completos
+        padrao = r'(\d{1,3}(?:\.\d{3})*(?:,\d{2})*)\s+(\d+)\s+([\w\s\.\-]+?)\s+([\d\-/\.]+)\s+[\w\s\(\)/-]+'
         resultado['creditos']['principais_depositantes'] = extrai_tabela(tabela, padrao)
 
-    # Débitos totais
+    # Débitos totais - padrão mais flexível
     m = re.search(r'Os débitos, em igual período, totalizaram R\$ ([\d\.,]+)', texto)
     if m:
         resultado['debitos']['total'] = limpa_valor(m.group(1))
 
-    # Pagamentos diversos
-    m = re.search(r'R\$ ([\d\.,]+) utilizados para pagamentos diversos através de (\d+) transações \(Sendo R\$ ([\d\.,]+) para pagamento de cobrança\)', texto)
+    # Pagamentos diversos - padrão mais flexível
+    m = re.search(r'R\$ ([\d\.,]+) utilizados para pagamentos diversos, (\d+) transações', texto)
     if m:
         resultado['debitos']['pagamentos']['total'] = limpa_valor(m.group(1))
         resultado['debitos']['pagamentos']['quantidade'] = int(m.group(2))
-        resultado['debitos']['pagamentos']['cobranca'] = limpa_valor(m.group(3))
 
-    # Débitos transferências
-    m = re.search(r'R\$ ([\d\.,]+) destinados para quitação de (\d+) Teds, Docs, Pixs, transferências e depósitos em contas', texto)
+    # Débitos transferências - padrão mais flexível
+    m = re.search(r'R\$ ([\d\.,]+) destinados para quitação de (\d+) TEDs, DOCs, PIXs, transferências e depósitos em contas', texto)
     if m:
         resultado['debitos']['transferencias']['total'] = limpa_valor(m.group(1))
         resultado['debitos']['transferencias']['quantidade'] = int(m.group(2))
 
-    # Principais favorecidos
-    m = re.search(r'Demonstramos os principais favorecidos:(.+?)Notas:', texto, re.DOTALL)
+    # Principais favorecidos - regex específico
+    m = re.search(r'Demonstramos os principais favorecidos:(.+?)(?:Notas:|Diante do exposto)', texto, re.DOTALL)
     if m:
         tabela = m.group(1)
-        padrao = r'([\d\.,]+)\s+(\d+)\s+([\w\s\.\-]+?)\s+([\d\-/\.]+)\s+[\w\s\(\)/-]+'
+        # Regex específico para capturar valores completos, incluindo underscores
+        padrao = r'(\d{1,3}(?:\.\d{3})*(?:,\d{2})*(?:___\d{2})?)\s+(\d+)\s+([\w\s\.\-]+?)\s+([\d\-/\.]+)\s+[\w\s\(\)/-]+'
         resultado['debitos']['principais_favorecidos'] = extrai_tabela(tabela, padrao)
 
-    # Pagamentos de boletos
-    m = re.search(r'pagamentos de boletos do próprio cliente e em benefícios de terceiros, conforme abaixo:(.+?)- De acordo', texto, re.DOTALL)
+    # Pagamentos de boletos - padrão mais flexível
+    m = re.search(r'pagamentos de boletos de cobrança a terceiros e por amostragem, demonstramos os principais pagadores/sacados registrados na emissão dos boletos:(.+?)Cliente informou', texto, re.DOTALL)
     if m:
         tabela = m.group(1)
-        padrao = r'([\d\.,]+)\s+(\d{2})\s+([\w\s\.\-]+?)\s+([\d\-/\.]+)'
+        padrao = r'R\$([\d\.,]+)\s+(\d+)\s+([\w\s\.\-]+?)\s+([\d\-/\.]+)'
         boletos = extrai_tabela(tabela, padrao)
         for b in boletos:
             resultado['boletos'].append({
@@ -128,6 +175,24 @@ def parse_bradesco(texto):
                 'nome_sacado': b['nome'],
                 'cpf_cnpj_sacado': b['cpf_cnpj']
             })
+
+    # Vínculos empresariais - padrão mais flexível
+    vinculos = re.findall(r'vínculo empregatício com a empresa ([^,]+)', texto, re.IGNORECASE)
+    resultado['vinculos_empresariais'] = vinculos
+
+    # Atividades suspeitas
+    atividades = []
+    if re.search(r'agiotagem', texto, re.IGNORECASE):
+        atividades.append('Agiotagem')
+    if re.search(r'lavagem', texto, re.IGNORECASE):
+        atividades.append('Lavagem de dinheiro')
+    if re.search(r'sonegação', texto, re.IGNORECASE):
+        atividades.append('Sonegação fiscal')
+    if re.search(r'conta pessoal para movimentar recursos de terceiros', texto, re.IGNORECASE):
+        atividades.append('Uso de conta pessoal para recursos de terceiros')
+    if re.search(r'pagamentos de boletos tendo terceiros como pagadores/sacados', texto, re.IGNORECASE):
+        atividades.append('Pagamentos de boletos para terceiros')
+    resultado['atividades_suspeitas'] = atividades
 
     # Notas e informações finais
     notas = re.findall(r'- ([^-]+)', texto)
@@ -146,5 +211,42 @@ def parse_bradesco(texto):
             crimes.append(p)
     if crimes:
         resultado['possiveis_crimes'] = list(set([c.lower() for c in crimes]))
+
+    # Resumo financeiro
+    credito_total = resultado['creditos']['total']
+    debito_total = resultado['debitos']['total']
+    resultado['resumo_financeiro']['saldo_periodo'] = credito_total - debito_total
+    
+    # Calcular movimentação diária média (se período disponível)
+    if resultado['periodo']:
+        try:
+            from datetime import datetime
+            inicio = datetime.strptime(resultado['periodo']['inicio'], '%d.%m.%Y')
+            fim = datetime.strptime(resultado['periodo']['fim'], '%d.%m.%Y')
+            dias = (fim - inicio).days
+            if dias > 0:
+                resultado['resumo_financeiro']['movimentacao_diaria_media'] = (credito_total + debito_total) / dias
+        except:
+            pass
+    
+    # Verificar incompatibilidade com renda/faturamento
+    renda_ou_faturamento = resultado.get('renda_mensal') or resultado.get('faturamento_mensal')
+    if renda_ou_faturamento:
+        renda_anual = renda_ou_faturamento * 12
+        movimentacao_total = credito_total + debito_total
+        if movimentacao_total > renda_anual * 3:  # Se movimentação > 3x renda anual
+            resultado['resumo_financeiro']['incompatibilidade_renda'] = True
+            resultado['resumo_financeiro']['indicadores_risco'].append('Movimentação incompatível com renda/faturamento declarado')
+    
+    # Outros indicadores de risco
+    if len(resultado['boletos']) > 5:
+        resultado['resumo_financeiro']['indicadores_risco'].append('Muitos boletos pagos')
+    
+    # Verificar depósitos em espécie elevados (só se tiver renda/faturamento)
+    if renda_ou_faturamento and resultado['creditos']['depositos']['especie']['valor'] > renda_ou_faturamento * 2:
+        resultado['resumo_financeiro']['indicadores_risco'].append('Depósitos em espécie elevados')
+    
+    if len(resultado['locais_depositos']) > 3:
+        resultado['resumo_financeiro']['indicadores_risco'].append('Depósitos em múltiplas localidades')
 
     return resultado 

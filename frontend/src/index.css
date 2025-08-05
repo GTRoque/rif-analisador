@@ -1,3 +1,44 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Garantir que não haja barras de rolagem laterais */
+html, body {
+  overflow-x: hidden;
+  width: 100%;
+}
+
+/* Garantir que o conteúdo utilize toda a largura disponível */
+#root {
+  width: 100%;
+  min-width: 100%;
+}
+
+/* Melhorar a responsividade das tabelas */
+.overflow-x-auto {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Garantir que as tabelas não quebrem o layout */
+table {
+  min-width: 100%;
+  table-layout: auto;
+}
+
+/* Melhorar a aparência em telas menores */
+@media (max-width: 768px) {
+  .px-4 {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+  
+  .px-6 {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+  
+  .px-8 {
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+}

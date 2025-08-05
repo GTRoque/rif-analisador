@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
+import LocalizacaoMapa from '../components/LocalizacaoMapa';
+import BradescoParser from '../components/BradescoParser';
+import BradescoGraficos from '../components/BradescoGraficos';
 
 function Card({ title, value, color = 'blue' }) {
   return (
@@ -9,6 +12,27 @@ function Card({ title, value, color = 'blue' }) {
       <span className={`text-lg font-bold text-${color}-800`}>{value}</span>
     </div>
   );
+}
+
+function formatarValor(valor) {
+  if (!valor || valor === '0' || valor === 'undefined') return '0,00';
+  
+  // Converter para string e limpar
+  let valorStr = valor.toString().trim();
+  
+  // Se já está no formato brasileiro (com vírgula), apenas formatar
+  if (valorStr.includes(',')) {
+    // Remover pontos de milhares existentes e adicionar novamente
+    valorStr = valorStr.replace(/\./g, '').replace(',', '.');
+    const numero = parseFloat(valorStr);
+    if (isNaN(numero)) return '0,00';
+    return numero.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  
+  // Se está no formato americano (com ponto), converter
+  const numero = parseFloat(valorStr);
+  if (isNaN(numero)) return '0,00';
+  return numero.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function Tabela({ titulo, dados, colunas }) {
@@ -49,6 +73,7 @@ export default function DetalheComunicacao() {
   const [comunicacao, setComunicacao] = useState(null);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState('');
+  const [abaAtiva, setAbaAtiva] = useState('detalhes'); // 'detalhes' ou 'graficos'
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -71,14 +96,183 @@ export default function DetalheComunicacao() {
 
   const json = comunicacao?.parsing_json || {};
   const banco = (comunicacao?.banco || '').toLowerCase();
+  const codigoSegmento = comunicacao?.codigo_segmento;
+
+  // Renderização específica para Bradesco (segmento 41)
+  if (banco.includes('bradesco') && codigoSegmento === "41") {
+    return (
+      <div className="min-h-screen bg-gradient-to-tl from-gray-600 via-gray-200 to-gray-100">
+        <div className="w-full px-4 md:px-6 lg:px-8 pt-8">
+          <Navbar />
+          <button onClick={() => navigate(-1)} className="mb-4 text-blue-700 hover:underline">← Voltar</button>
+          <h1 className="text-2xl font-bold text-blue-900 mb-4">Detalhes da Comunicação - Bradesco</h1>
+          {loading && <div>Carregando...</div>}
+          {erro && <div className="text-red-600 mb-4">{erro}</div>}
+          {comunicacao && (
+            <div className="space-y-6">
+              {/* Cabeçalho básico */}
+              <div className="bg-white rounded-lg p-6 border border-gray-200">
+                <div className="mb-4">
+                  <div className="text-xl font-bold text-blue-900">{comunicacao.titular}</div>
+                  <div className="text-gray-600 text-sm">CPF/CNPJ: {comunicacao.cpf}</div>
+                  <div className="text-gray-600 text-sm">Banco: {comunicacao.banco}</div>
+                  <div className="text-gray-600 text-sm">Segmento: {codigoSegmento}</div>
+                </div>
+
+                {/* Abas */}
+                <div className="flex space-x-1 border-b border-gray-200">
+                  <button
+                    onClick={() => setAbaAtiva('detalhes')}
+                    className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+                      abaAtiva === 'detalhes'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    📋 Detalhes
+                  </button>
+                  <button
+                    onClick={() => setAbaAtiva('graficos')}
+                    className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+                      abaAtiva === 'graficos'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    📊 Gráficos
+                  </button>
+                </div>
+              </div>
+
+              {/* Conteúdo das abas */}
+              {abaAtiva === 'detalhes' ? (
+                <BradescoParser dados={json} />
+              ) : (
+                <BradescoGraficos dados={json} />
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Renderização específica para segmentos 42 e outros (SFN-Espécie e outros segmentos)
+  if (codigoSegmento === "42" || (codigoSegmento && codigoSegmento !== "41")) {
+    // Para segmentos 42+, os valores estão diretamente no json (campo_a, campo_b, etc.)
+    const valores = {
+      campo_a: json.campo_a,
+      campo_b: json.campo_b,
+      campo_c: json.campo_c,
+      campo_d: json.campo_d,
+      campo_e: json.campo_e
+    };
+    
+    // Os significados vêm do backend na resposta da API
+    const significados = comunicacao.significados || {};
+    
+    // Filtrar apenas campos com valores
+    const camposComValores = [];
+    const cores = ["green", "blue", "purple", "orange", "red"];
+    
+    Object.entries(valores).forEach(([campo, valor], index) => {
+      // Verificar se o valor é válido (não vazio, não zero, não undefined)
+      if (valor && 
+          valor !== "0" && 
+          valor !== "0,00" && 
+          valor !== "undefined" && 
+          valor !== "") {
+        
+        // Converter valor brasileiro para número para verificar se é maior que 0
+        let valorNumerico = 0;
+        try {
+          const valorStr = valor.toString().trim();
+          if (valorStr.includes(',')) {
+            // Formato brasileiro: "50.000,00" -> 50000.00
+            valorNumerico = parseFloat(valorStr.replace(/\./g, '').replace(',', '.'));
+          } else {
+            // Formato americano: "50000.00" -> 50000.00
+            valorNumerico = parseFloat(valorStr);
+          }
+        } catch (e) {
+          valorNumerico = 0;
+        }
+        
+        if (valorNumerico > 0) {
+          camposComValores.push({
+            campo,
+            valor,
+            significado: significados[campo] || campo.toUpperCase(),
+            cor: cores[index]
+          });
+        }
+      }
+    });
+    
+    return (
+      <div className="min-h-screen bg-gradient-to-tl from-gray-600 via-gray-200 to-gray-100">
+        <div className="w-full px-4 md:px-6 lg:px-8 pt-8">
+          <Navbar />
+          <button onClick={() => navigate(-1)} className="mb-4 text-blue-700 hover:underline">← Voltar</button>
+          <h1 className="text-2xl font-bold text-blue-900 mb-4">Detalhes da Comunicação</h1>
+          {loading && <div>Carregando...</div>}
+          {erro && <div className="text-red-600 mb-4">{erro}</div>}
+          {comunicacao && (
+            <div className="bg-white rounded-xl shadow p-6 border border-gray-100">
+              {/* Cabeçalho do titular */}
+              <div className="mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div>
+                  <div className="text-xl font-bold text-blue-900">{comunicacao.titular}</div>
+                  <div className="text-gray-600 text-sm">CPF: {comunicacao.cpf}</div>
+                  <div className="text-gray-600 text-sm">Comunicante: {comunicacao.banco}</div>
+                  <div className="text-gray-600 text-sm">Tipo: {comunicacao.tipo}</div>
+                </div>
+                {camposComValores.length > 0 ? (
+                  <div className="flex gap-4 flex-wrap">
+                    {camposComValores.map(({ campo, valor, significado, cor }) => (
+                      <Card 
+                        key={campo}
+                        title={significado} 
+                        value={`R$ ${formatarValor(valor)}`} 
+                        color={cor} 
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-gray-500 text-sm">Nenhum valor específico disponível para este segmento.</div>
+                )}
+              </div>
+
+              {/* Mapa de Localização */}
+              {comunicacao.localizacao && (
+                <div className="mb-6">
+                  <LocalizacaoMapa localizacao={comunicacao.localizacao} />
+                </div>
+              )}
+
+              {/* Informações adicionais */}
+              {comunicacao.informacoes_adicionais && (
+                <div className="mb-6">
+                  <h3 className="font-semibold text-blue-900 mb-2 text-lg">Informações Adicionais</h3>
+                  <div className="text-gray-700 text-sm whitespace-pre-line bg-gray-50 p-4 rounded-lg">
+                    {comunicacao.informacoes_adicionais}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   // Renderização específica para Banco do Brasil
   if (banco.includes('banco do brasil') || banco.includes('bb')) {
     const creditos = json.creditos || {};
     const debitos = json.debitos || {};
     return (
-      <div className="min-h-screen flex flex-col items-center bg-gradient-to-tl from-gray-600 via-gray-200 to-gray-100">
-        <div className="w-full max-w-4xl mx-auto pt-8 px-2 md:px-6">
+      <div className="min-h-screen bg-gradient-to-tl from-gray-600 via-gray-200 to-gray-100">
+        <div className="w-full px-4 md:px-6 lg:px-8 pt-8">
           <Navbar />
           <button onClick={() => navigate(-1)} className="mb-4 text-blue-700 hover:underline">← Voltar</button>
           <h1 className="text-2xl font-bold text-blue-900 mb-4">Detalhes da Comunicação</h1>
@@ -152,6 +346,13 @@ export default function DetalheComunicacao() {
                   </ul>
                 </div>
               )}
+              {/* Mapa de Localização */}
+              {comunicacao.localizacao && (
+                <div className="mb-6">
+                  <LocalizacaoMapa localizacao={comunicacao.localizacao} />
+                </div>
+              )}
+
               {/* Informações finais */}
               {json.informacoes_finais && json.informacoes_finais.length > 0 && (
                 <div className="mb-6">
@@ -189,8 +390,8 @@ export default function DetalheComunicacao() {
   const periodo = json.periodo;
 
   return (
-    <div className="min-h-screen flex flex-col items-center bg-gradient-to-tl from-gray-600 via-gray-200 to-gray-100">
-      <div className="w-full max-w-4xl mx-auto pt-8 px-2 md:px-6">
+    <div className="min-h-screen bg-gradient-to-tl from-gray-600 via-gray-200 to-gray-100">
+      <div className="w-full px-4 md:px-6 lg:px-8 pt-8">
         <Navbar />
         <button onClick={() => navigate(-1)} className="mb-4 text-blue-700 hover:underline">← Voltar</button>
         <h1 className="text-2xl font-bold text-blue-900 mb-4">Detalhes da Comunicação</h1>
@@ -219,6 +420,13 @@ export default function DetalheComunicacao() {
                 <Card title="Total de Débitos" value={`R$ ${debitos.total?.toLocaleString('pt-BR', {minimumFractionDigits:2})}`} color="red" />
               </div>
             </div>
+
+            {/* Mapa de Localização */}
+            {comunicacao.localizacao && (
+              <div className="mb-6">
+                <LocalizacaoMapa localizacao={comunicacao.localizacao} />
+              </div>
+            )}
 
             {/* Locais das transações */}
             {locais.length > 0 && (

@@ -3,6 +3,10 @@ from collections import defaultdict
 
 def limpa_valor(valor_str):
     try:
+        if not valor_str:
+            return 0.0
+        # Garantir que é string
+        valor_str = str(valor_str)
         v = float(valor_str.replace('.', '').replace(',', '.').rstrip('.'))
         if v != v:
             return 0.0

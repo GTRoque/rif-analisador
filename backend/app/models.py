@@ -17,6 +17,9 @@ class Comunicacao(Base):
     data = Column(String)
     informacoes_adicionais = Column(Text)
     parsing_json = Column(Text)  # JSON estruturado extraído
+    codigo_segmento = Column(String)  # Código do segmento (41, 42, 37, etc.)
+    cidade_agencia = Column(String)  # Cidade da agência
+    uf_agencia = Column(String)  # UF da agência
     envolvido_id = Column(Integer, ForeignKey('envolvidos.id'))
     ocorrencia_id = Column(Integer, ForeignKey('ocorrencias.id'))
     envolvido = relationship('Envolvido', back_populates='comunicacoes')

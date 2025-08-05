@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import Navbar from '../components/Navbar';
 import { useNavigate } from 'react-router-dom';
+import apiService from '../services/api';
+import Estatisticas from '../components/Estatisticas';
 
 export default function Dashboard() {
   const [resumo, setResumo] = useState(null);
@@ -14,10 +16,10 @@ export default function Dashboard() {
       setLoading(true);
       setErro('');
       try {
-        const r1 = await fetch('http://10.9.182.21:8080/api/dashboard-resumo');
-        const r2 = await fetch('http://10.9.182.21:8080/api/comunicacoes');
-        const resumoData = await r1.json();
-        const comunicacoesData = await r2.json();
+        const [resumoData, comunicacoesData] = await Promise.all([
+          apiService.getDashboardResumo(),
+          apiService.getComunicacoes()
+        ]);
         setResumo(resumoData);
         setComunicacoes(comunicacoesData);
       } catch (err) {
@@ -33,12 +35,14 @@ export default function Dashboard() {
   const somaValores = comunicacoes.reduce((acc, c) => acc + (c.valor || 0), 0);
 
   return (
-    <div className="min-h-screen flex flex-col items-center bg-gradient-to-tl from-gray-600 via-gray-200 to-gray-100">
-      <div className="w-full max-w-6xl mx-auto pt-8 px-2 md:px-6">
+    <div className="min-h-screen bg-gradient-to-tl from-gray-600 via-gray-200 to-gray-100">
+      <div className="w-full px-4 md:px-6 lg:px-8 pt-8">
         <Navbar />
         <h1 className="text-3xl font-bold text-blue-900 mb-4 mt-2">Dashboard</h1>
         {loading && <div>Carregando...</div>}
         {erro && <div className="text-red-600 mb-4">{erro}</div>}
+        
+        {/* Cards de resumo */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 w-full">
           <div className="bg-white rounded-lg shadow-sm p-5 flex flex-col items-start justify-center border border-gray-100 w-full">
             <div className="text-gray-500 text-base mb-1">Volume Analisado</div>
@@ -49,6 +53,9 @@ export default function Dashboard() {
             <div className="text-2xl font-bold text-blue-900">{resumo?.num_comunicacoes}</div>
           </div>
         </div>
+        
+        {/* Componente de estatísticas */}
+        <Estatisticas />
         <div className="bg-white rounded-2xl shadow-sm p-6 border border-gray-100 w-full">
           <h2 className="text-xl font-bold mb-3">Comunicações</h2>
           <div className="overflow-x-auto rounded-2xl">
