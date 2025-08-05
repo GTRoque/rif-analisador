@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import apiService from '../services/api';
 
 export default function Upload() {
   const [comunicacoes, setComunicacoes] = useState(null);
@@ -14,17 +15,8 @@ export default function Upload() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setMsg(''); setErro(''); setLoading(true);
-    const formData = new FormData();
-    formData.append('comunicacoes', comunicacoes);
-    formData.append('envolvidos', envolvidos);
-    formData.append('ocorrencias', ocorrencias);
-    formData.append('usuario', usuario);
     try {
-      const resp = await fetch('http://10.9.182.21:8080/upload', {
-        method: 'POST',
-        body: formData,
-      });
-      const data = await resp.json();
+      const data = await apiService.uploadFiles(comunicacoes, envolvidos, ocorrencias, usuario);
       if (data.success) {
         setMsg('Arquivos enviados com sucesso!');
         setTimeout(() => navigate('/dashboard'), 1200);

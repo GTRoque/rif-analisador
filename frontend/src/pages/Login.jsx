@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import logoLab from '../assets/logo_labld.png';
 import logoPCRN from '../assets/logo_pcrn.png';
+import apiService from '../services/api';
 
 export default function Login() {
   const [usuario, setUsuario] = useState('');
@@ -15,14 +16,7 @@ export default function Login() {
     setErro('');
     setLoading(true);
     try {
-      const formData = new FormData();
-      formData.append('usuario', usuario);
-      formData.append('senha', senha);
-      const resp = await fetch('http://10.9.182.21:8080/login', {
-        method: 'POST',
-        body: formData,
-      });
-      const data = await resp.json();
+      const data = await apiService.login(usuario, senha);
       if (data.success) {
         localStorage.setItem('usuario', usuario);
         navigate('/upload');
